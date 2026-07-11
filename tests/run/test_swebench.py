@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from minisweagent import package_dir
 from minisweagent.models.test_models import DeterministicModel, make_output
 from minisweagent.run.benchmarks.swebench import (
+    capture_terminal_git_diff,
     filter_instances,
     get_sb_environment,
     get_swebench_docker_image_name,
@@ -130,6 +131,20 @@ def test_get_sb_environment_does_not_mutate_shared_config():
 
     assert mock_get_environment.call_args.args[0]["image"] == "custom/image:tag"
     assert "image" not in config["environment"]
+
+
+def test_capture_terminal_git_diff_uses_read_only_git_command():
+    env = MagicMock()
+    env.execute.return_value = {
+        "returncode": 0,
+        "output": "diff --git a/file b/file\n",
+        "exception_info": "",
+    }
+
+    assert capture_terminal_git_diff(env) == "diff --git a/file b/file\n"
+    env.execute.assert_called_once_with(
+        {"command": "git diff --binary --no-ext-diff"}
+    )
 
 
 def test_filter_instances_no_filters():
