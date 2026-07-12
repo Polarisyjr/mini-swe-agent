@@ -5,6 +5,7 @@
 
 import concurrent.futures
 import json
+import os
 import random
 import re
 import threading
@@ -108,6 +109,17 @@ def update_preds_file(output_path: Path, instance_id: str, model_name: str, resu
         output_path.write_text(json.dumps(output_data, indent=2))
 
 
+def capture_terminal_git_diff(env: Environment) -> str:
+    """Read the tracked workspace terminal state before the environment is removed."""
+    output = env.execute({"command": "git diff --binary --no-ext-diff"})
+    if output.get("returncode") != 0 or output.get("exception_info"):
+        raise RuntimeError(f"Failed to capture terminal git diff: {output}")
+    diff = output.get("output")
+    if not isinstance(diff, str):
+        raise RuntimeError("Terminal git diff did not return text")
+    return diff
+
+
 def remove_from_preds_file(output_path: Path, instance_id: str):
     """Remove an instance from the predictions file."""
     if not output_path.exists():
@@ -160,6 +172,18 @@ def process_instance(
         extra_info = {"traceback": traceback.format_exc(), "exception_str": str(e)}
     finally:
         if agent is not None:
+            if os.getenv("MSWEA_CAPTURE_TERMINAL_DIFF") == "1":
+                try:
+                    extra_info["terminal_git_diff"] = capture_terminal_git_diff(agent.env)
+                    extra_info["terminal_git_diff_source"] = (
+                        "post-run:git-diff-binary-no-ext-diff/v1"
+                    )
+                except Exception as error:
+                    logger.error(
+                        f"Failed to capture terminal git diff for {instance_id}: {error}",
+                        exc_info=True,
+                    )
+                    extra_info["terminal_git_diff_error"] = str(error)
             traj_path = instance_dir / f"{instance_id}.traj.json"
             agent.save(
                 traj_path,

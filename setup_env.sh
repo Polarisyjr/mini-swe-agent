@@ -30,10 +30,8 @@
 #     stdin for the final "finish?" confirmation and aborts with
 #     `exit_status: EOFError` + an empty submission. Add `--exit-immediately`
 #     (undocumented in the current docs page) to actually capture the patch.
-#   - HF_HOME: `~/.bash_profile` sets HF_HOME=/mnt/azureuser/huggingface,
-#     which is not writable by this user and shadows ~/.bashrc's
-#     HF_HOME=/mnt/raid0/jirong/hf (where SWE-bench dataset/models actually
-#     live). Export HF_HOME=/mnt/raid0/jirong/hf explicitly.
+#   - HF_HOME: keep the Hugging Face cache on a writable local path for this
+#     user. The pz default is /mnt/raid0/pz/hf.
 #   - For actually scoring a generated patch (not just producing a
 #     trajectory), `pip install swebench` (not a mini-swe-agent dependency)
 #     and run its docker-based harness the same way trae-agent's smoke test
