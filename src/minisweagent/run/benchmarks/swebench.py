@@ -12,6 +12,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from typing import Annotated
 
 import typer
 from jinja2 import StrictUndefined, Template
@@ -175,9 +176,7 @@ def process_instance(
             if os.getenv("MSWEA_CAPTURE_TERMINAL_DIFF") == "1":
                 try:
                     extra_info["terminal_git_diff"] = capture_terminal_git_diff(agent.env)
-                    extra_info["terminal_git_diff_source"] = (
-                        "post-run:git-diff-binary-no-ext-diff/v1"
-                    )
+                    extra_info["terminal_git_diff_source"] = "post-run:git-diff-binary-no-ext-diff/v1"
                 except Exception as error:
                     logger.error(
                         f"Failed to capture terminal git diff for {instance_id}: {error}",
@@ -202,7 +201,12 @@ def process_instance(
 
 
 def filter_instances(
-    instances: list[dict], *, filter_spec: str, slice_spec: str = "", shuffle: bool = False
+    instances: list[dict],
+    *,
+    filter_spec: str,
+    slice_spec: str = "",
+    shuffle: bool = False,
+    instance_order: str = "",
 ) -> list[dict]:
     """Filter and slice a list of SWEBench instances."""
     if shuffle:
@@ -213,6 +217,9 @@ def filter_instances(
     instances = [instance for instance in instances if re.match(filter_spec, instance["instance_id"])]
     if (after_filter := len(instances)) != before_filter:
         logger.info(f"Instance filter: {before_filter} -> {after_filter} instances")
+    if instance_order:
+        order = {instance_id: index for index, instance_id in enumerate(instance_order.split(","))}
+        instances.sort(key=lambda instance: order.get(instance["instance_id"], len(order)))
     if slice_spec:
         values = [int(x) if x else None for x in slice_spec.split(":")]
         instances = instances[slice(*values)]
@@ -229,6 +236,7 @@ def main(
     slice_spec: str = typer.Option("", "--slice", help="Slice specification (e.g., '0:5' for first 5 instances)", rich_help_panel="Data selection"),
     filter_spec: str = typer.Option("", "--filter", help="Filter instance IDs by regex", rich_help_panel="Data selection"),
     shuffle: bool = typer.Option(False, "--shuffle", help="Shuffle instances", rich_help_panel="Data selection"),
+    instance_order: Annotated[str, typer.Option("--instance-order", help="Comma-separated instance IDs in dispatch order", rich_help_panel="Data selection")] = "",
     output: str = typer.Option("", "-o", "--output", help="Output directory", rich_help_panel="Basic"),
     workers: int = typer.Option(1, "-w", "--workers", help="Number of worker threads for parallel processing", rich_help_panel="Basic"),
     model: str | None = typer.Option(None, "-m", "--model", help="Model to use", rich_help_panel="Basic"),
@@ -249,7 +257,13 @@ def main(
     logger.info(f"Loading dataset {dataset_path}, split {split}...")
     instances = list(load_dataset(dataset_path, split=split))
 
-    instances = filter_instances(instances, filter_spec=filter_spec, slice_spec=slice_spec, shuffle=shuffle)
+    instances = filter_instances(
+        instances,
+        filter_spec=filter_spec,
+        slice_spec=slice_spec,
+        shuffle=shuffle,
+        instance_order=instance_order,
+    )
     if not redo_existing and (output_path / "preds.json").exists():
         existing_instances = list(json.loads((output_path / "preds.json").read_text()).keys())
         logger.info(f"Skipping {len(existing_instances)} existing instances")

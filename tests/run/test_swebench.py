@@ -142,9 +142,7 @@ def test_capture_terminal_git_diff_uses_read_only_git_command():
     }
 
     assert capture_terminal_git_diff(env) == "diff --git a/file b/file\n"
-    env.execute.assert_called_once_with(
-        {"command": "git diff --binary --no-ext-diff"}
-    )
+    env.execute.assert_called_once_with({"command": "git diff --binary --no-ext-diff"})
 
 
 def test_filter_instances_no_filters():
@@ -215,6 +213,24 @@ def test_filter_instances_shuffle():
     # Test that shuffled result is different from original order
     result_no_shuffle = filter_instances(instances.copy(), filter_spec="", slice_spec="", shuffle=False)
     assert result1 != result_no_shuffle
+
+
+def test_filter_instances_explicit_order():
+    instances = [
+        {"instance_id": "astropy__1"},
+        {"instance_id": "django__1"},
+        {"instance_id": "sympy__1"},
+    ]
+    result = filter_instances(
+        instances,
+        filter_spec="",
+        instance_order="sympy__1,astropy__1,django__1",
+    )
+    assert [instance["instance_id"] for instance in result] == [
+        "sympy__1",
+        "astropy__1",
+        "django__1",
+    ]
 
 
 def test_filter_instances_empty_list():
