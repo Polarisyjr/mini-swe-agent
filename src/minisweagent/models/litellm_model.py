@@ -63,6 +63,7 @@ class LitellmModel:
 
     def _query(self, messages: list[dict[str, str]], **kwargs):
         try:
+            self._t2t_started_at_ns = time.time_ns()
             t0 = time.monotonic()
             response = litellm.completion(
                 model=self.config.model_name,
@@ -71,6 +72,7 @@ class LitellmModel:
                 **(self.config.model_kwargs | kwargs),
             )
             self._t2t_latency_s = time.monotonic() - t0  # pure litellm.completion wall (text in -> text out)
+            self._t2t_ended_at_ns = time.time_ns()
             return response
         except litellm.exceptions.AuthenticationError as e:
             e.message += " You can permanently set your API key with `mini-extra config set KEY VALUE`."
@@ -105,6 +107,8 @@ class LitellmModel:
             **cost_output,
             "timestamp": time.time(),
             "t2t_latency_s": getattr(self, "_t2t_latency_s", None),  # text-to-text wall of the LLM call
+            "t2t_started_at_ns": getattr(self, "_t2t_started_at_ns", None),
+            "t2t_ended_at_ns": getattr(self, "_t2t_ended_at_ns", None),
         }
         return message
 
