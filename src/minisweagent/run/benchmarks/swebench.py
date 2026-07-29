@@ -11,6 +11,7 @@ import re
 import threading
 import time
 import traceback
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Annotated
 
@@ -278,20 +279,71 @@ def main(
     })
     config = recursive_merge(*configs)
 
-    progress_manager = RunBatchProgressManager(len(instances), output_path / f"exit_statuses_{time.time()}.yaml")
+    replay_mode = os.environ.get("NATIVE_REPLAY_MODE") == "replay"
+    replay_refill = os.environ.get("NATIVE_REPLAY_REFILL")
+    if replay_mode and replay_refill not in {"0", "1"}:
+        raise RuntimeError("mini-SWE replay requires NATIVE_REPLAY_REFILL")
+
+    recorded_plan = None
+    instances_by_id: dict[str, dict] = {}
+    progress_total = len(instances)
+    if replay_mode and replay_refill == "1":
+        from minireplay.slot_scheduler import load_required_plan
+
+        recorded_plan = load_required_plan(adapter="mini-swe", concurrency=workers)
+        instances_by_id = {
+            str(instance["instance_id"]): instance for instance in instances
+        }
+        recorded_plan.require_tasks(instances_by_id)
+        progress_total = sum(len(slot.tasks) for slot in recorded_plan.slots)
+
+    progress_manager = RunBatchProgressManager(
+        progress_total,
+        output_path / f"exit_statuses_{time.time()}.yaml",
+    )
+
+    def process_future(future: concurrent.futures.Future, instance_id: str):
+        try:
+            future.result()
+        except concurrent.futures.CancelledError:
+            pass
+        except Exception as e:
+            logger.error(f"Error in future for instance {instance_id}: {e}", exc_info=True)
+            progress_manager.on_uncaught_exception(instance_id, e)
 
     def process_futures(futures: dict[concurrent.futures.Future, str]):
         for future in concurrent.futures.as_completed(futures):
-            try:
-                future.result()
-            except concurrent.futures.CancelledError:
-                pass
-            except Exception as e:
-                instance_id = futures[future]
-                logger.error(f"Error in future for instance {instance_id}: {e}", exc_info=True)
-                progress_manager.on_uncaught_exception(instance_id, e)
+            process_future(future, futures[future])
 
     with Live(progress_manager.render_group, refresh_per_second=4):
+        if recorded_plan is not None:
+            from minireplay.slot_scheduler import run_recorded_slot_futures
+
+            with ExitStack() as stack:
+                executors = {
+                    slot.slot_id: stack.enter_context(
+                        concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                    )
+                    for slot in recorded_plan.slots
+                }
+
+                def submit(task):
+                    return executors[task.slot_id].submit(
+                        process_instance,
+                        instances_by_id[task.source_actor_id],
+                        output_path,
+                        config,
+                        progress_manager,
+                    )
+
+                run_recorded_slot_futures(
+                    recorded_plan,
+                    submit=submit,
+                    on_complete=lambda task, future, _active: process_future(
+                        future, task.source_actor_id
+                    ),
+                )
+            return
         with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
                 executor.submit(process_instance, instance, output_path, config, progress_manager): instance[
