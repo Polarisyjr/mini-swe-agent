@@ -39,7 +39,7 @@
 
 set -euo pipefail
 
-CONDA_HOME="${CONDA_HOME:-${CONDA_BASE:-$(conda info --base 2>/dev/null)}}"; [ -n "$CONDA_HOME" ] || CONDA_HOME="$HOME/miniconda3"
+CONDA_HOME="${CONDA_HOME:-${CONDA_BASE:-$(conda info --base 2>/dev/null || true)}}"; [ -n "$CONDA_HOME" ] || CONDA_HOME="$HOME/miniconda3"
 CONDA_ENV="${CONDA_ENV:-sweagent}"
 MSWEA_DIR="$(cd "$(dirname "$0")" && pwd)"     # this script lives in frameworks/mini-swe-agent
 VERIFY_ONLY=0
